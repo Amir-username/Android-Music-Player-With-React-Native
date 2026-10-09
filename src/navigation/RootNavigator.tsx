@@ -1,12 +1,21 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { NavigationContainer, DarkTheme, DefaultTheme, type Theme as NavTheme } from '@react-navigation/native';
+import { View, Pressable, StyleSheet } from 'react-native';
+import {
+  NavigationContainer,
+  DarkTheme,
+  DefaultTheme,
+  CommonActions,
+  type Theme as NavTheme,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useTheme } from '@/hooks/useTheme';
 import { Icon } from '@/components/ui/Icon';
 import { Text } from '@/components/ui/Text';
 import type { IconName } from '@/components/ui/Icon';
+import { PlaybackTestBar } from '@/components/player/PlaybackTestBar';
+import { usePlayerStore } from '@/stores/playerStore';
 import { LibraryScreen } from '@/screens/LibraryScreen';
 import { PlaylistsScreen } from '@/screens/PlaylistsScreen';
 import { FavoritesScreen } from '@/screens/FavoritesScreen';
@@ -55,54 +64,100 @@ const TABS: TabConfig[] = [
   },
 ];
 
-/** Tab icon with the showcase's soft violet pill behind the focused icon. */
-function TabBarIcon({ name, focused, color }: { name: IconName; focused: boolean; color: string }) {
+/**
+ * Hand-rolled tab bar (no library layout internals).
+ *
+ * Why custom: @react-navigation/bottom-tabs v7 renders each tab icon as TWO
+ * absolutely-positioned layers sized with percentages (`width/height: '100%'`)
+ * inside a fixed wrapper, cross-fading their opacity. On emulators with a
+ * nonstandard display stack (e.g. LDPlayer + Fabric), those percentage-sized
+ * absolute layers collapse to zero size — labels (normal flow) keep rendering
+ * while icons disappear. This bar uses plain flexbox only: icon and label are
+ * normal-flow children, so they render identically everywhere.
+ *
+ * Column layout: [PlaybackTestBar (Step 1)] above [tab row]; Step 2 swaps the
+ * test bar for the designed MiniPlayer without changing this container.
+ */
+function CustomTabBar({ state, navigation, insets }: BottomTabBarProps) {
+  const theme = useTheme();
+  const { colors } = theme;
+  const hasActiveTrack = usePlayerStore((s) => s.activeTrack !== null);
+  // Emulators can report large/bogus bottom insets; clamp to a sane max
+  // (Android 3-button navigation is ~48dp).
+  const bottomInset = Math.max(0, Math.min(insets.bottom, 48));
+
   return (
     <View
       style={[
-        styles.tabPill,
-        { backgroundColor: focused ? 'rgba(139,92,246,0.16)' : 'transparent' },
+        styles.tabBar,
+        {
+          backgroundColor: colors.background,
+          borderTopColor: theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+          paddingBottom: bottomInset,
+        },
       ]}
     >
-      <Icon name={name} size={21} color={color} />
+      {hasActiveTrack ? <PlaybackTestBar /> : null}
+      <View style={styles.tabRow}>
+      {state.routes.map((route, index) => {
+        const focused = state.index === index;
+        const config = TABS.find((t) => t.name === route.name);
+        const color = focused ? colors.primary : colors.textTertiary;
+
+        const onPress = () => {
+          const event = navigation.emit({
+            type: 'tabPress',
+            target: route.key,
+            canPreventDefault: true,
+          });
+          if (!focused && !event.defaultPrevented) {
+            navigation.dispatch({ ...CommonActions.navigate(route.name), target: state.key });
+          }
+        };
+
+        const onLongPress = () => {
+          navigation.emit({ type: 'tabLongPress', target: route.key });
+        };
+
+        return (
+          <Pressable
+            key={route.key}
+            accessibilityRole="button"
+            accessibilityState={focused ? { selected: true } : {}}
+            accessibilityLabel={config?.label}
+            onPress={onPress}
+            onLongPress={onLongPress}
+            style={styles.tabItem}
+          >
+            <View style={[styles.pill, focused && { backgroundColor: 'rgba(139,92,246,0.16)' }]}>
+              <Icon
+                name={focused ? (config?.iconFocused ?? 'ellipse') : (config?.icon ?? 'ellipse-outline')}
+                size={21}
+                color={color}
+              />
+            </View>
+            <Text
+              variant="tiny"
+              style={{
+                color,
+                fontSize: 10,
+                fontFamily: theme.typography.fontFamily.semiBold,
+                marginTop: 2,
+              }}
+            >
+              {config?.label ?? route.name}
+            </Text>
+          </Pressable>
+        );
+      })}
+      </View>
     </View>
   );
 }
 
 function TabNavigator() {
-  const theme = useTheme();
-  const { colors } = theme;
-
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textTertiary,
-        tabBarStyle: {
-          backgroundColor: colors.background,
-          borderTopWidth: 1,
-          borderTopColor: theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-          height: 64,
-          paddingTop: 6,
-        },
-        tabBarIcon: ({ focused, color }) => {
-          const config = TABS.find((t) => t.name === route.name);
-          return (
-            <TabBarIcon
-              name={focused ? (config?.iconFocused ?? config?.icon ?? 'ellipse') : (config?.icon ?? 'ellipse-outline')}
-              focused={focused}
-              color={color}
-            />
-          );
-        },
-        tabBarLabel: ({ color }) => (
-          <Text variant="tiny" style={{ color, fontSize: 10, fontFamily: theme.typography.fontFamily.semiBold }}>
-            {route.name}
-          </Text>
-        ),
-      })}
-    >
+    <Tab.Navigator tabBar={(props) => <CustomTabBar {...props} />} screenOptions={{ headerShown: false }}>
       {TABS.map((tab) => (
         <Tab.Screen key={tab.name} name={tab.name} component={tab.component} />
       ))}
@@ -137,7 +192,18 @@ export function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
-  tabPill: {
+  tabBar: {
+    borderTopWidth: 1,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    paddingTop: 6,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  pill: {
     paddingHorizontal: 16,
     paddingVertical: 3,
     borderRadius: 9999,

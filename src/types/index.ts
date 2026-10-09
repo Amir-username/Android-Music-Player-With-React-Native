@@ -11,13 +11,19 @@ export interface Track {
   albumArtist?: string;
   /** Duration in milliseconds */
   durationMs: number;
-  /** Local file URI (file://...) */
-  uri: string;
+  /**
+   * Audio source. Device files use a `file://` URI string; bundled sample
+   * tracks use a Metro asset module number (require('*.mp3')) which
+   * react-native-track-player resolves at runtime.
+   */
+  uri: string | number;
   artworkUri?: string;
   /** 1-based track number within the album, when available */
   trackNumber?: number;
   /** ISO date string */
   addedAt: string;
+  /** Where the track came from — drives UI badges and queue grouping */
+  source: 'sample' | 'device';
 }
 
 export interface Album {

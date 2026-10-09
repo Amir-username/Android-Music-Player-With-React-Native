@@ -21,6 +21,7 @@
     },
     "android": {
       "package": "com.offline.musicplayer",
+      "permissions": ["POST_NOTIFICATIONS"],
       "adaptiveIcon": {
         "backgroundColor": "#0F0F12",
         "foregroundImage": "./assets/android-icon-foreground.png",
